@@ -5,7 +5,7 @@ sebagai service di VPS.
 
 | | |
 |---|---|
-| Versi | 1.0.0 (versionCode 1) |
+| Versi | 1.1.0 (versionCode 2) |
 | Package | `id.mikuhost.lifeform` |
 | Min Android | 8.0 (API 26) |
 | Target SDK | 34 |
@@ -14,7 +14,7 @@ sebagai service di VPS.
 
 ## Unduh
 
-- [MikuHost-Lifeform-1.0.0.apk](https://github.com/miku208/apk1/raw/main/MikuHost-Lifeform-1.0.0.apk)
+- [MikuHost-Lifeform-1.1.0.apk](https://github.com/miku208/apk1/raw/main/MikuHost-Lifeform-1.1.0.apk)
 - Checksum: lihat `SHA256SUMS.txt`
 
 ```bash
@@ -56,6 +56,18 @@ Kode berlaku 10 menit dan hanya bisa dipakai sekali. Device bisa dicabut dari
 - **Lifeform** — chat streaming dengan AI, approval queue, tujuan, memori, refleksi terakhir
 - **Activity** — timeline dengan filter AI / Server / Security / Warning / Error
 - **Settings** — backend URL, provider & model, autonomy level 1–3, identitas AI, manajemen device
+- **Remote Control** — file manager SFTP/FTPS + terminal PTY interaktif ke VPS:
+  - daftar server tersimpan (kredensial dienkripsi di backend, tidak pernah dikirim balik)
+  - browse/upload/download, rename, move, copy, hapus, mkdir, buat file, metadata
+  - editor kode dengan syntax highlight, undo/redo, cari & ganti, diff sebelum simpan
+  - terminal persisten dengan beberapa sesi, tombol cepat (^C/^D/^L/ESC/TAB/panah), resize
+
+## Backend
+
+Folder [`backend/`](backend) berisi sumber backend Node.js (API + WebSocket + modul
+remote control) yang dipakai aplikasi ini. Rahasia tidak disertakan: buat `.env`
+sendiri dari `.env.example`, lalu jalankan `npm install && npm start`. Kunci enkripsi
+kredensial remote dibuat otomatis di `data/remote.key` (mode 0600).
 
 ## Keamanan
 
@@ -64,3 +76,5 @@ Kode berlaku 10 menit dan hanya bisa dipakai sekali. Device bisa dicabut dari
 - Tindakan berisiko (hapus file, firewall, SSH, shutdown, dll.) selalu masuk
   approval queue di backend.
 - Autonomy Level 1 (default) bersifat read-only.
+- Kredensial SSH/FTP hanya ada di backend (AES-256-GCM, `data/remote.key`) dan
+  diverifikasi host key-nya (TOFU eksplisit, tanpa auto-accept).
