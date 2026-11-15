@@ -1,1 +1,1 @@
-a6db8f393a7b29c1c4755c24e93246d0e1489473ccd0c6b2daefe4875f42ee04  MikuHost-Lifeform-1.1.0.apk
+f55e9c85738198f142884529b89f6bce6c014aa878d90a89739f8e979e805876  publish/MikuHost-Lifeform-1.1.0.apk

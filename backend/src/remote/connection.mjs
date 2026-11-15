@@ -10,8 +10,11 @@ import { HttpError } from '../http.mjs';
 import { createHostVerifier, fingerprintFromKeyBlob, HostKeyMismatchError, normalizeFingerprint } from './fingerprint.mjs';
 import { createSftpAdapter } from './sftp-adapter.mjs';
 import { createFtpAdapter } from './ftp-adapter.mjs';
+import { createLocalAdapter } from './local-adapter.mjs';
+import { localNodeInfo } from './local-runtime.mjs';
 import {
   getServerRow,
+  isLocalRuntime,
   listServers,
   publicServer,
   recordEvent,
@@ -249,6 +252,7 @@ async function openFtp(row) {
 
 export async function connectServer(serverId, { force = false } = {}) {
   const row = getServerRow(serverId);
+  const local = isLocalRuntime(row);
   const existing = pool.get(serverId);
   if (existing && !force && existing.status === 'connected' && !existing.adapter.closed) {
     touchIdle(serverId);
@@ -256,10 +260,22 @@ export async function connectServer(serverId, { force = false } = {}) {
   }
   if (existing) closeServer(serverId, 'reconnect');
 
-  const state = { adapter: null, status: 'connecting', lastError: null, connectedAt: null, fingerprint: row.host_fingerprint };
+  const state = { adapter: null, status: local ? 'connected' : 'connecting', lastError: null, connectedAt: local ? Date.now() : null, fingerprint: local ? null : row.host_fingerprint };
   pool.set(serverId, state);
-  recordEvent({ serverId, protocol: row.protocol, event: 'connection.opening', status: 'connecting', actor: 'owner' });
 
+  // Primary VPS: native local runtime, never SSH/SFTP to this host.
+  if (local) {
+    const adapter = createLocalAdapter({ server: row });
+    state.adapter = adapter;
+    state.status = 'connected';
+    state.connectedAt = Date.now();
+    state.lastError = null;
+    setServerStatus(serverId, { status: 'connected', connectedAt: state.connectedAt, error: null });
+    recordEvent({ serverId, protocol: 'local', event: 'connection.opened', status: 'connected', detail: 'local-runtime', actor: 'system' });
+    return adapter;
+  }
+
+  recordEvent({ serverId, protocol: row.protocol, event: 'connection.opening', status: 'connecting', actor: 'owner' });
   try {
     const adapter = row.protocol === 'sftp' ? await openSsh(row) : await openFtp(row);
     state.adapter = adapter;
@@ -293,10 +309,40 @@ export async function getAdapter(serverId) {
   return adapter;
 }
 
-/** Test a saved server: fingerprint trust first, then a real listing. */
+/** Test a saved server. Local runtime connects natively; remote servers verify host key first. */
 export async function testServer(serverId) {
   const row = getServerRow(serverId);
   const startedAt = Date.now();
+  if (isLocalRuntime(row)) {
+    try {
+      const adapter = await connectServer(serverId, { force: true });
+      const root = row.remote_root || '/';
+      const entries = await adapter.list(root);
+      return {
+        ok: true,
+        runtime: 'local',
+        protocol: 'local',
+        needsTrust: false,
+        fingerprint: null,
+        latencyMs: Date.now() - startedAt,
+        root,
+        entries: entries.length,
+        server: publicServer(getServerRow(serverId)),
+        status: 'connected',
+        message: 'Primary VPS terhubung melalui Local Runtime.',
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        runtime: 'local',
+        protocol: 'local',
+        needsTrust: false,
+        message: String(error?.message ?? error),
+        code: error?.code ?? 'LOCAL_RUNTIME_FAILED',
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+  }
   if (row.protocol === 'sftp' && !row.host_fingerprint) {
     const fingerprint = await probeHostKey(row);
     recordEvent({
@@ -350,16 +396,36 @@ export async function testServer(serverId) {
 export function connectionOverview() {
   const servers = listServers();
   const live = new Map(liveConnections().map((item) => [item.serverId, item]));
-  return servers.map((server) => ({
-    ...server,
-    connection: live.get(server.id) ?? {
+  return servers.map((server) => {
+    const connection = live.get(server.id) ?? {
       serverId: server.id,
       status: server.lastStatus === 'connected' ? 'disconnected' : server.lastStatus ?? 'unknown',
       connectedAt: null,
       lastError: server.lastError,
       fingerprint: server.hostFingerprint,
-    },
-  }));
+    };
+    if (server.isLocal) {
+      return {
+        ...server,
+        connection: {
+          ...connection,
+          status: 'connected',
+          runtime: 'local',
+          protocol: 'local',
+          lastError: null,
+          fingerprint: null,
+        },
+      };
+    }
+    return { ...server, connection };
+  });
+}
+
+/** Attach live Primary Node identity to a local server entry. */
+export async function withNodeInfo(server) {
+  if (!server?.isLocal) return server;
+  const info = await localNodeInfo();
+  return { ...server, node: info, connection: { ...(server.connection ?? {}), status: 'connected', runtime: 'local' } };
 }
 
 export function saveTrustedFingerprint(serverId, fingerprint) {

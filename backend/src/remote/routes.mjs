@@ -5,7 +5,8 @@ import { query } from '../db.mjs';
 import { HttpError, numberParam } from '../http.mjs';
 import { audit } from '../auth.mjs';
 import { defaultServerId, listConnectionHistory, listServers, publicServer, requireDeviceAuth, deleteServer, createServer, updateServer, getServerRow } from './servers.mjs';
-import { connectionOverview, testServer, closeServer, connectServer } from './connection.mjs';
+import { connectionOverview, withNodeInfo, testServer, closeServer, connectServer } from './connection.mjs';
+import { localNodeInfo } from './local-runtime.mjs';
 import {
   copyPath,
   deletePath,
@@ -61,21 +62,28 @@ export function remoteRoutes() {
     {
       method: 'GET',
       pattern: '/api/v1/remote/overview',
-      handler: withAuth(() => ({
-        body: {
-          servers: connectionOverview(),
-          transfers: listTransfers({ limit: 20 }),
-          sessions: listSessions(),
-          activeSessions: activeSessionCount(),
-          defaults: { serverId: defaultServerId() },
-        },
-      })),
+      handler: withAuth(async () => {
+        const servers = await Promise.all(connectionOverview().map(withNodeInfo));
+        return {
+          body: {
+            servers,
+            primary: servers.find((item) => item.isLocal) ?? null,
+            transfers: listTransfers({ limit: 20 }),
+            sessions: listSessions(),
+            activeSessions: activeSessionCount(),
+            defaults: { serverId: defaultServerId() },
+          },
+        };
+      }),
     },
     {
       method: 'GET',
       pattern: '/api/v1/remote/servers',
-      handler: withAuth(() => ({
-        body: { servers: connectionOverview(), defaultServerId: defaultServerId() },
+      handler: withAuth(async () => ({
+        body: {
+          servers: await Promise.all(connectionOverview().map(withNodeInfo)),
+          defaultServerId: defaultServerId(),
+        },
       })),
     },
     {
@@ -86,12 +94,15 @@ export function remoteRoutes() {
     {
       method: 'GET',
       pattern: '/api/v1/remote/servers/:id',
-      handler: withAuth(({ params }) => {
+      handler: withAuth(async ({ params }) => {
         const row = getServerRow(params.id);
+        const server = publicServer(row);
+        const entry = connectionOverview().find((item) => item.id === row.id) ?? null;
         return {
           body: {
-            server: publicServer(row),
-            live: connectionOverview().find((item) => item.id === row.id)?.connection ?? null,
+            server,
+            node: server.isLocal ? await localNodeInfo() : null,
+            live: entry?.connection ?? null,
             history: listConnectionHistory({ serverId: row.id, limit: 20 }),
           },
         };
@@ -127,6 +138,12 @@ export function remoteRoutes() {
       method: 'POST',
       pattern: '/api/v1/remote/servers/:id/trust',
       handler: withAuth(({ params, body, auth }) => {
+        const existing = getServerRow(params.id);
+        const local = String(existing?.runtime ?? '').toLowerCase() === 'local' || String(existing?.protocol ?? '').toLowerCase() === 'local';
+        if (local) {
+          audit(auth.deviceId, 'remote.server.trusted', params.id, { local: true });
+          return { body: { server: publicServer(existing), trusted: true, local: true } };
+        }
         const fingerprint = String(body?.fingerprint ?? '').trim();
         if (!fingerprint) throw new HttpError(400, 'Fingerprint wajib.', 'VALIDATION');
         const server = updateServer(params.id, { hostFingerprint: fingerprint }, auth);

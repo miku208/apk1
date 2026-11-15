@@ -19,6 +19,7 @@ import {
 } from '../lifeform/identity.mjs';
 import { planGoal, reflectionStatus, runReflection } from '../lifeform/core.mjs';
 import { decideApproval, listApprovals, autonomyLevel, setAutonomyLevel, AUTONOMY } from '../security/policy.mjs';
+import { localNodeInfo } from '../remote/local-runtime.mjs';
 import * as ai from '../ai/engine.mjs';
 
 export function lifeformRoutes() {
@@ -39,7 +40,7 @@ export function lifeformRoutes() {
           body: {
             ...lifeformOverview(),
             model,
-            autonomy: AUTONOMY[autonomyLevel()],
+            autonomy: { ...AUTONOMY[autonomyLevel()], runtime: await localNodeInfo() },
             reflection: reflectionStatus(),
           },
         };
@@ -232,7 +233,10 @@ export function lifeformRoutes() {
     {
       method: 'GET',
       pattern: '/api/v1/autonomy',
-      handler: () => ({ body: { level: autonomyLevel(), options: Object.values(AUTONOMY) } }),
+      handler: async () => {
+        const level = autonomyLevel();
+        return { body: { level, ...AUTONOMY[level], options: Object.values(AUTONOMY), runtime: await localNodeInfo() } };
+      },
     },
     {
       method: 'PUT',

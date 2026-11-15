@@ -29,6 +29,7 @@ import { monitorRoutes } from './routes/monitor.mjs';
 import { systemRoutes } from './routes/system.mjs';
 import { remoteRoutes } from './remote/routes.mjs';
 import { closeAllConnections } from './remote/connection.mjs';
+import { ensurePrimaryNode } from './remote/servers.mjs';
 import { cancelAllTransfers } from './remote/transfers.mjs';
 import { closeAllSessions, recoverSessionsOnStartup, startTerminalSweeper, stopTerminalSweeper } from './remote/terminal.mjs';
 import { getEngine } from './ai/engine.mjs';
@@ -163,6 +164,9 @@ async function bootstrap() {
   ensureOwner();
   ensureNode();
   ensureIdentity();
+  // The host running this backend is the Primary Node: adopt it into the local
+  // runtime once, so Remote Control never opens SSH/SFTP to itself.
+  await ensurePrimaryNode();
 
   startMonitor();
   attachWebSocketServer(server);

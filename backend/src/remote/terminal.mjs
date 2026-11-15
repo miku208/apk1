@@ -136,8 +136,9 @@ function getServerName(serverId) {
 
 export async function createSession({ serverId, deviceId, userId = null, cwd = null, cols = 80, rows = 24, shell = null }) {
   const row = getServerRow(serverId);
-  if (row.protocol !== 'sftp') {
-    throw new HttpError(400, 'Terminal interaktif membutuhkan server SSH/SFTP.', 'TERMINAL_UNSUPPORTED');
+  const isLocal = String(row.runtime ?? '').toLowerCase() === 'local' || String(row.protocol ?? '').toLowerCase() === 'local';
+  if (!isLocal && row.protocol !== 'sftp') {
+    throw new HttpError(400, 'Terminal interaktif membutuhkan server SSH/SFTP atau Local Runtime.', 'TERMINAL_UNSUPPORTED');
   }
   const activeForDevice = Array.from(sessions.values()).filter((session) => session.deviceId === deviceId && session.status === 'active');
   if (activeForDevice.length >= config.remoteTerminalMaxSessions) {

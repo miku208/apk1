@@ -9,7 +9,7 @@ import { audit } from '../auth.mjs';
 export const AUTONOMY = Object.freeze({
   1: { level: 1, name: 'observe', label: 'Observe', description: 'Read-only: metrics, logs, services, analysis. No mutations.' },
   2: { level: 2, name: 'operate', label: 'Operate', description: 'Routine approved actions: restart known services, health checks, diagnostics.' },
-  3: { level: 3, name: 'autonomous', label: 'Autonomous', description: 'Multi-step work inside policy; risky actions still need approval.' },
+  3: { level: 3, name: 'autonomous', label: 'Full Root Autonomy', description: 'Owner-authorized full autonomy for operations within executor capability; no per-action approval prompt.' },
 });
 
 export function autonomyLevel() {
@@ -69,19 +69,33 @@ export function classifyCommand(command) {
 }
 
 /**
- * Decide whether an action may run now. Level 1 never mutates; level 2 allows
- * routine service actions; risky actions always need an explicit approval.
+ * Decide whether an action may run now.
+ * - Level 1: read-only, no mutations.
+ * - Level 2: routine service actions allowed; other mutating actions require explicit approval.
+ * - Level 3: owner-authorized full autonomy for operations within executor capability
+ *   (no per-action approval prompt). Authentication, authorization, audit logging,
+ *   and emergency controls remain enforced outside this decision.
  */
 export function authorize({ action, command = null, target = null, risk = null, routine = false }) {
   const level = autonomyLevel();
   const classified = risk ? { risk, requiresApproval: risk !== 'low', reason: 'Diklasifikasikan oleh tool' } : classifyCommand(command ?? action);
+
+  // Read-only / low-risk observations are always allowed.
   if (classified.risk === 'low' && !classified.requiresApproval) {
-    return { allowed: true, approvalRequired: level >= 2 ? false : false, classification: classified };
+    return { allowed: true, approvalRequired: false, classification: classified };
   }
+
   if (level === 1) {
     return { allowed: false, approvalRequired: false, classification: classified, reason: 'Autonomy Level 1 (Observe) tidak mengizinkan tindakan yang mengubah sistem.' };
   }
-  if (level === 2 && routine && ROUTINE_SERVICE.test(String(target ?? ''))) {
+
+  if (level >= 3) {
+    // Full root autonomy: execute authorized operations without per-action approval.
+    return { allowed: true, approvalRequired: false, classification: { ...classified, autonomy: 'full' } };
+  }
+
+  // Level 2
+  if (routine && ROUTINE_SERVICE.test(String(target ?? ''))) {
     return { allowed: true, approvalRequired: false, classification: classified };
   }
   return { allowed: false, approvalRequired: true, classification: classified };

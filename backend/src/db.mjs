@@ -394,6 +394,18 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_remote_terminals ON remote_terminal_sessions(created_at DESC);
     `,
   },
+  {
+    id: 4,
+    name: 'remote-local-runtime',
+    sql: `
+      -- Primary VPS is accessed through the local runtime, never SSH to itself.
+      -- The migration only adds the columns; identifyPrimaryNode() (servers.mjs)
+      -- decides which saved node is this host, so a loopback-looking SSH server
+      -- is never silently converted into a local node.
+      ALTER TABLE remote_servers ADD COLUMN runtime TEXT NOT NULL DEFAULT 'remote';
+      ALTER TABLE remote_servers ADD COLUMN runtime_kind TEXT;
+    `,
+  },
 ];
 
 export function openDatabase(file = config.dbFile) {

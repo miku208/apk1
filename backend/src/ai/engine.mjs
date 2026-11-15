@@ -339,7 +339,7 @@ export async function chat({ conversationId, messages, identity, state, memories
         durationMs: Date.now() - startedAt,
         model: model.id,
         provider: providerId,
-        toolCalls: toolEvents.length,
+        toolCalls: toolEvents.filter((tool) => tool.ok !== undefined).length,
       });
       return {
         text,
@@ -367,7 +367,8 @@ export async function chat({ conversationId, messages, identity, state, memories
 
 function mapAgentEvent(event, conversationId, toolEvents) {
   switch (event?.type) {
-    case 'answer:chunk':
+    // The agent loop emits the same chunk as `text`, `answer:chunk` and
+    // `answer_delta`; forwarding more than one duplicates every token.
     case 'text':
       if (event.delta || event.text) {
         emitEvent('ai.stream', { conversationId, delta: event.delta ?? event.text });
@@ -376,21 +377,31 @@ function mapAgentEvent(event, conversationId, toolEvents) {
     case 'phase':
       if (event.phase) emitEvent('ai.status', { conversationId, phase: String(event.phase).toLowerCase() });
       break;
-    case 'tool-start':
-      toolEvents.push({ name: event.name, input: event.input, startedAt: Date.now() });
-      setLifeformState({ state: 'executing', currentTask: `Menjalankan ${event.name}` });
-      emitEvent('ai.status', { conversationId, phase: 'executing', tool: event.name });
+    case 'tool-start': {
+      // The agent loop emits `toolName` (not `name`).
+      const toolName = event.toolName ?? event.name ?? 'unknown';
+      toolEvents.push({ name: toolName, input: event.input ?? null, startedAt: Date.now() });
+      setLifeformState({ state: 'executing', currentTask: `Menjalankan ${toolName}` });
+      emitEvent('ai.status', { conversationId, phase: 'executing', tool: toolName });
       break;
-    case 'tool-end':
-      toolEvents.push({ name: event.name, ok: event.ok, durationMs: event.durationMs });
+    }
+    case 'tool-end': {
+      const toolName = event.toolName ?? event.name ?? 'unknown';
+      toolEvents.push({
+        name: toolName,
+        ok: event.ok,
+        durationMs: event.durationMs,
+        ...(event.error ? { error: String(event.error) } : {}),
+      });
       recordActivity({
         type: 'tool',
-        title: `Tool ${event.name} ${event.ok === false ? 'gagal' : 'selesai'}`,
-        detail: null,
+        title: `Tool ${toolName} ${event.ok === false ? 'gagal' : 'selesai'}`,
+        detail: event.error ? String(event.error) : null,
         source: 'ai',
         result: event.ok === false ? 'failed' : 'ok',
       });
       break;
+    }
     case 'status':
       if (event.message) emitEvent('ai.status', { conversationId, phase: 'thinking', message: event.message });
       break;

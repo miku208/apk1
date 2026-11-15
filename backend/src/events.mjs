@@ -10,7 +10,20 @@ export function subscribe(listener) {
   return () => listeners.delete(listener);
 }
 
+/**
+ * Internal AI turns (reflection, planning, summarisation) are not user
+ * conversations: their deltas must never reach a chat renderer, otherwise raw
+ * JSON like {"summary":...} shows up as a bubble.
+ */
+export function isInternalConversation(id) {
+  const value = String(id ?? '');
+  return value.startsWith('internal:') || value.startsWith('internal-') || value === 'system';
+}
+
 export function emitEvent(type, payload = {}) {
+  if (type.startsWith('ai.') && isInternalConversation(payload.conversationId ?? payload.conversation_id)) {
+    return null;
+  }
   const event = { id: crypto.randomUUID(), type, ts: Date.now(), payload };
   for (const listener of listeners) {
     try {

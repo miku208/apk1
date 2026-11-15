@@ -96,6 +96,9 @@ export function aiRoutes() {
           goals: listGoals({ status: 'active', limit: 5 }),
         });
 
+        // toolEvents holds a start and an end record per call; only completed
+        // calls become a tool message, otherwise every call shows up twice.
+        const completedTools = result.toolEvents.filter((tool) => tool.ok !== undefined);
         const assistant = appendMessage(conversation.id, {
           role: 'assistant',
           content: result.text,
@@ -103,15 +106,15 @@ export function aiRoutes() {
             model: result.model,
             provider: result.provider,
             durationMs: result.durationMs,
-            toolCalls: result.toolEvents.length,
+            toolCalls: completedTools.length,
           },
         });
-        for (const tool of result.toolEvents) {
+        for (const tool of completedTools) {
           appendMessage(conversation.id, {
             role: 'tool',
             content: '',
             toolName: tool.name,
-            meta: { ok: tool.ok, durationMs: tool.durationMs },
+            meta: { ok: tool.ok, durationMs: tool.durationMs, ...(tool.error ? { error: tool.error } : {}) },
           });
         }
         query.run('UPDATE conversations SET model = ?, provider = ?, updated_at = ? WHERE id = ?', result.model, result.provider, Date.now(), conversation.id);
@@ -124,7 +127,7 @@ export function aiRoutes() {
             provider: result.provider,
             providerName: result.providerName,
             durationMs: result.durationMs,
-            toolCalls: result.toolEvents.map((tool) => tool.name),
+            toolCalls: completedTools.map((tool) => tool.name),
             usage: await ai.usageSummary().then((usage) => usage.today),
           },
         };

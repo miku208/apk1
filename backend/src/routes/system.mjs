@@ -8,6 +8,7 @@ import { parseJson, query } from '../db.mjs';
 import { executeCommand, cancelTask, terminalTask } from '../security/terminal.mjs';
 import { getLifeformState, mapAlert } from '../events.mjs';
 import { autonomyLevel, AUTONOMY } from '../security/policy.mjs';
+import { localNodeInfo } from '../remote/local-runtime.mjs';
 import { recordActivity } from '../events.mjs';
 import { monitorHealth } from '../monitor/collector.mjs';
 import { connectionCount, EVENT_GROUPS } from '../ws.mjs';
@@ -209,10 +210,11 @@ export function systemRoutes() {
     {
       method: 'GET',
       pattern: '/api/v1/settings',
-      handler: () => ({
+      handler: async () => ({
         body: {
           settings: settingsMap(),
-          autonomy: { level: autonomyLevel(), options: Object.values(AUTONOMY) },
+          autonomy: { level: autonomyLevel(), ...AUTONOMY[autonomyLevel()], options: Object.values(AUTONOMY) },
+          runtime: await localNodeInfo(),
           backend: {
             baseUrl: config.publicBaseUrl,
             basePath: config.basePath,
